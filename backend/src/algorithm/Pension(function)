@@ -1,0 +1,237 @@
+## 입력 변수 
+
+| 변수명 | 타입 | 설명 |
+|--------|------|------|
+| Name | str | 이름 |
+| Identification_number | str | 주민등록번호 앞자리 |
+| Current_age | int | 현재 나이 |
+| Dependent_parent_count | int | 부양 부모 수 |
+| Child_count | int | 부양 자녀 수 |
+| Spouse | str | 배우자 유무 ('Y' 또는 'N') |
+| Pension_type | str | 연금 종류 (노령연금, 개인연금) |
+| Annual_income | int | 연간 근로소득 |
+| Non_taxable_payment | int | 비과세 납입액 (2001년 이전) |
+| Taxable_payment | int | 과세 납입액 (2002년 이후) |
+| Pension_start_age | int | 수령 시작 나이 |
+| Public_pension | bool | 국민연금 가입 여부 |
+| Private_pension | bool | 개인연금 가입 여부 |
+| Private_pension_type | str | 개인연금 유형 (확정/종신) |
+| Private_subscription_period | int | 개인연금 가입 기간 (년) |
+| Private_monthly_premium | int | 개인연금 월 납입액 |
+| Private_lump_sum | bool | 개인연금 일시금 여부 |
+| Private_payment_period | int | 확정형 수령 기간 (10, 15, 20년) |
+
+------------------------------------------------------------------------------------------------------------
+
+##출력 변수
+
+### result 딕셔너리
+
+| 변수명 | 타입 | 설명 |
+|--------|------|------|
+| result["공적연금 연간 수령액"] | int | 국민연금 기준 연간 수령액 |
+| result["개인연금 연간 수령액"] | int | 개인연금 기준 연간 수령액 |
+| result["총 세금"] | int | 연금 총 세금 (종합 또는 분리 과세) |
+| result["세후 연간 수령액"] | int | 연간 수령 실수령액 |
+| result["세후 월 수령액"] | int | 월 수령 실수령액 |
+
+### lump_sum_result 딕셔너리
+
+| 변수명 | 타입 | 설명 |
+|--------|------|------|
+| lump_sum_result["일시금 총액(예상)"] | int | 일시금 수령 예상 총액 |
+| lump_sum_result["일시금 예상 세금"] | int | 일시금 세금 (22%) |
+| lump_sum_result["일시금 세후 예상액"] | int | 일시금 실수령액 |
+
+------------------------------------------------------------------------------------------------------------
+
+#### 노령연금 계산, 개인연금 계산, 일시금 계산 ####
+
+def Health(): 
+  return 0;
+
+def Finance(): 
+  return 0;
+
+def decide_private_payment_period(health_score, finance_score): # 개인연금 확정/종신 판별 // 수정예정
+    if health_score >= 80 and finance_score >= 80:
+        return 20
+    elif health_score <= 40 or finance_score <= 40:
+        return 10
+    else:
+        return 15
+
+def decide_private_lump_sum(health_score, finance_score): # 개인연금 일시금 결정 // 수정예정
+    if health_score <= 40 or finance_score <= 60:
+        return True
+    else:
+        return False
+
+def calculate_public_pension(user_info, adjustment_years=0, adjustment_type="normal"): # 노령연금 계산 
+    if not user_info.get("Public_pension", False):
+        return 0
+    if user_info["Subscription_period"] < 10:
+        return 0
+    A_value = 2756000
+    B_rate = 0.012 * user_info["Subscription_period"]
+    estimated_monthly_pension = A_value * B_rate
+    spouse_bonus = 269360 if user_info["Spouse"] == 'Y' else 0
+    parent_bonus = user_info["Dependent_parent_count"] * 179580
+    child_bonus = user_info["Child_count"] * 179580
+    estimated_monthly_pension += spouse_bonus + parent_bonus + child_bonus
+    if adjustment_type == "early" and 1 <= adjustment_years <= 5:
+        estimated_monthly_pension *= (1 - 0.06 * adjustment_years)
+    elif adjustment_type == "deferred" and 1 <= adjustment_years <= 5:
+        estimated_monthly_pension *= (1 + 0.072 * adjustment_years)
+    return estimated_monthly_pension
+
+def calculate_private_pension(user_info): # 개인연금 계산 
+    if not user_info.get("Private_pension"):
+        return 0
+
+    total_paid = user_info["Private_monthly_premium"] * 12 * user_info["Private_subscription_period"]
+
+    if user_info.get("Private_lump_sum", False):
+        return total_paid
+
+    private_pension_type = user_info.get("Private_pension_type")
+
+    if private_pension_type == "확정형":
+        payment_period_years = user_info.get("Private_payment_period")
+        if payment_period_years is None:
+            payment_period_years = decide_private_payment_period(user_info["Health_score"], user_info["Finance_score"])
+        return total_paid / (payment_period_years * 12)
+    elif private_pension_type == "종신형":
+        rate = 0.008
+        private_annual_pension = total_paid * rate
+        return private_annual_pension / 12
+
+    return 0
+
+def calculate_public_lump_sum(user_info): # 일시금 계산
+    if not user_info.get("Public_pension", False):
+        return 0
+    A_value = 2756000
+    B_rate = 0.012 * user_info["Subscription_period"]
+    lump_sum = A_value * B_rate * 12 * 5
+    return lump_sum
+
+def generate_lump_sum_result(user_info): # 일시금 결과
+    lump_sum = calculate_public_lump_sum(user_info)
+    tax = calculate_lump_sum_tax(lump_sum)
+    return {
+        "일시금 총액(예상)": int(lump_sum),
+        "일시금 예상 세금": int(tax),
+        "일시금 세후 예상액": int(lump_sum - tax)
+    }
+
+
+------------------------------------------------------------------------------------------------------------
+
+#### 세금 계산  ####
+
+def calculate_lump_sum_tax(lump_sum): # 일시금 세금 계산
+    tax_rate = 0.22
+    return lump_sum * tax_rate
+
+def calculate_private_tax(user_info, annual_private_pension, is_lump_sum=False): # 개인연금 세금 계산
+    if annual_private_pension <= 0:
+        return 0
+    if is_lump_sum:
+        tax_rate = 0.165
+    else:
+        age = user_info["Current_age"]
+        if age < 70:
+            tax_rate = 0.055
+        elif 70 <= age < 80:
+            tax_rate = 0.044
+        else:
+            tax_rate = 0.033
+    return annual_private_pension * tax_rate
+
+def calculate_public_tax(user_info, annual_public_pension): # 노령연금 세금 계산
+    return calculate_tax(user_info, annual_public_pension, 0)
+
+def calculate_total_tax(user_info, annual_public_pension, annual_private_pension, is_lump_sum=False): # 전체 세금 계산(분리과세/종합과세 판별)
+    total_annual_pension = annual_public_pension + annual_private_pension
+    if total_annual_pension <= 12000000:
+        public_tax = calculate_public_tax(user_info, annual_public_pension)
+        private_tax = calculate_private_tax(user_info, annual_private_pension, is_lump_sum)
+        total_tax = public_tax + private_tax
+    else:
+        total_tax = calculate_tax(user_info, annual_public_pension, annual_private_pension)
+    return total_tax
+
+def calculate_tax(user_info, annual_public_pension, annual_private_pension): # 노령연금 세금 계산 , 분리과세,종합과세 세금 계산
+    total_annual_pension = annual_public_pension + annual_private_pension
+    if total_annual_pension <= 12000000:
+        annual_pension = annual_public_pension
+        if annual_pension <= 3500000:
+            deduction = annual_pension
+        elif annual_pension <= 7000000:
+            deduction = 3500000 + (annual_pension - 3500000) * 0.4
+        elif annual_pension <= 14000000:
+            deduction = 4900000 + (annual_pension - 7000000) * 0.2
+        else:
+            deduction = 6300000 + (annual_pension - 14000000) * 0.1
+        additional_deduction = 0
+        if user_info.get("Spouse") == 'Y':
+            additional_deduction += 500000
+        additional_deduction += (user_info.get("Dependent_parent_count", 0) + user_info.get("Child_count", 0)) * 500000
+        total_deduction = deduction + additional_deduction
+        taxable_income = max(annual_pension - total_deduction, 0)
+    else:
+        basic_deduction = 1500000
+        if user_info.get("Spouse") == 'Y':
+            basic_deduction += 1500000
+        basic_deduction += (user_info.get("Dependent_parent_count", 0) + user_info.get("Child_count", 0)) * 1500000
+        taxable_income = max(total_annual_pension - basic_deduction, 0)
+    if taxable_income <= 12000000:
+        tax = taxable_income * 0.06
+    elif taxable_income <= 46000000:
+        tax = taxable_income * 0.15 - 1080000
+    elif taxable_income <= 88000000:
+        tax = taxable_income * 0.24 - 5220000
+    elif taxable_income <= 150000000:
+        tax = taxable_income * 0.35 - 14900000
+    elif taxable_income <= 300000000:
+        tax = taxable_income * 0.38 - 19400000
+    elif taxable_income <= 500000000:
+        tax = taxable_income * 0.40 - 25400000
+    elif taxable_income <= 1000000000:
+        tax = taxable_income * 0.42 - 33400000
+    else:
+        tax = taxable_income * 0.45 - 45400000
+    return max(int(tax), 0)
+
+------------------------------------------------------------------------------------------------------------
+
+#### 시뮬레이션 실행 ####
+
+def main():
+    user_info = get_user_input()
+
+    lump_sum_result = generate_lump_sum_result(user_info)
+
+    annual_public = calculate_public_pension(user_info) * 12
+    annual_private = calculate_private_pension(user_info) * 12
+    total_tax = calculate_total_tax(user_info, annual_public, annual_private, is_lump_sum=user_info.get("Private_lump_sum", False))
+
+    net_annual = annual_public + annual_private - total_tax
+    net_monthly = net_annual / 12
+
+    result = {
+        "공적연금 연간 수령액": int(annual_public),
+        "개인연금 연간 수령액": int(annual_private),
+        "총 세금": int(total_tax),
+        "세후 연간 수령액": int(net_annual),
+        "세후 월 수령액": int(net_monthly)
+    }
+
+    print("\n[연금 수령 요약 결과]")
+    for k, v in result.items():
+        print(f"{k}: {v:,}원")
+
+    print("\n[일시금 결과]")
+    for k, v in lump_sum_result.items():
+        print(f"{k}: {v:,}원") 
